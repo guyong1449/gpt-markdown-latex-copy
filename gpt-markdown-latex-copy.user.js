@@ -3465,7 +3465,7 @@
 
 
         button.textContent =
-            'copyformd';
+            'Copy for md Latex';
 
 
         button.style.cssText = `
@@ -3508,7 +3508,7 @@
 
 
                 const normalLabel =
-                    'copyformd';
+                    'Copy for md Latex';
 
 
                 try {

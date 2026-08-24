@@ -1,10 +1,10 @@
 # gpt-markdown-latex-copy
 
-A userscript that adds a `copyformd` button to ChatGPT assistant messages and copies the response as Markdown while preserving LaTeX and code-block formatting.
+A userscript that adds a `Copy for md Latex` button to ChatGPT assistant messages and copies the response as Markdown while preserving LaTeX and code-block formatting.
 
 ## Features
 
-- Adds a `copyformd` button below ChatGPT assistant responses.
+- Adds a `Copy for md Latex` button below ChatGPT assistant responses.
 - Preserves inline and display LaTeX as Markdown math.
 - Preserves fenced code blocks, language labels, indentation, and real line breaks.
 - Converts headings, emphasis, links, blockquotes, lists, and tables to Markdown.
