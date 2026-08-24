@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name         GPT Markdown LaTeX Copy
+// @name         Copy for md Latex
 // @namespace    https://github.com/guyong1449/gpt-markdown-latex-copy
-// @version      0.5.3
+// @version      0.5.4
 // @description  将 ChatGPT 回答复制为 Markdown，并保留 LaTeX、代码块真实换行，同时排除语言标签与复制按钮 UI
 // @homepageURL  https://github.com/guyong1449/gpt-markdown-latex-copy
 // @supportURL   https://github.com/guyong1449/gpt-markdown-latex-copy/issues
-// @updateURL    https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/gpt-markdown-latex-copy.user.js
-// @downloadURL  https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/gpt-markdown-latex-copy.user.js
+// @updateURL    https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/copy-for-md-latex.user.js
+// @downloadURL  https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/copy-for-md-latex.user.js
 // @match        https://chatgpt.com/*
 // @grant        none
 // ==/UserScript==
@@ -14,12 +14,12 @@
 (function () {
     'use strict';
 
-    const BUTTON_WRAPPER_CLASS = 'copyformd-wrapper';
-    const BUTTON_CLASS = 'copyformd-button';
-    const TURN_PROCESSED_ATTR = 'data-copyformd-turn-ready';
+    const BUTTON_WRAPPER_CLASS = 'copy-for-md-latex-wrapper';
+    const BUTTON_CLASS = 'copy-for-md-latex-button';
+    const TURN_PROCESSED_ATTR = 'data-copy-for-md-latex-turn-ready';
 
-    const TEMP_MATH_ATTR = 'data-copyformd-temp-math-id';
-    const TEMP_CODE_ATTR = 'data-copyformd-temp-code-id';
+    const TEMP_MATH_ATTR = 'data-copy-for-md-latex-temp-math-id';
+    const TEMP_CODE_ATTR = 'data-copy-for-md-latex-temp-code-id';
 
     let mathIdCounter = 0;
     let codeIdCounter = 0;
@@ -96,7 +96,7 @@
 
         } catch (error) {
             console.warn(
-                '[copyformd] Clipboard API 失败，尝试备用方式：',
+                '[Copy for md Latex] Clipboard API 失败，尝试备用方式：',
                 error
             );
 
@@ -123,7 +123,7 @@
 
             } catch (fallbackError) {
                 console.error(
-                    '[copyformd] execCommand(copy) 失败：',
+                    '[Copy for md Latex] execCommand(copy) 失败：',
                     fallbackError
                 );
             }
@@ -1069,7 +1069,7 @@
             );
 
             const id =
-                'copyformd-math-' +
+                'copy-for-md-latex-math-' +
                 (++mathIdCounter);
 
             const display =
@@ -1149,7 +1149,7 @@
             );
 
             const id =
-                'copyformd-math-' +
+                'copy-for-md-latex-math-' +
                 (++mathIdCounter);
 
             const display =
@@ -1249,7 +1249,7 @@
 
 
         console.log(
-            '[copyformd] 数学公式：独立 ' +
+            '[Copy for md Latex] 数学公式：独立 ' +
             displayCount +
             ' 个；行内 ' +
             inlineCount +
@@ -2202,7 +2202,7 @@
          * 可以看到四种算法各自识别了多少行。
          */
         console.log(
-            '[copyformd][Code Debug]',
+            '[Copy for md Latex][Code Debug]',
             {
                 rawLines:
                     countNewlines(
@@ -2368,12 +2368,12 @@
 
 
             const id =
-                'copyformd-code-' +
+                'copy-for-md-latex-code-' +
                 (++codeIdCounter);
 
 
             const placeholder =
-                '@@COPYFORMD_CODE_BLOCK_' +
+                '@@COPY_FOR_MD_LATEX_CODE_BLOCK_' +
                 codeIdCounter +
                 '@@';
 
@@ -2464,7 +2464,7 @@
 
 
         console.log(
-            '[copyformd] 代码块：' +
+            '[Copy for md Latex] 代码块：' +
             count +
             ' 个。'
         );
@@ -3319,7 +3319,7 @@
          *
          * ↓
          *
-         * @@COPYFORMD_CODE_BLOCK_1@@
+         * @@COPY_FOR_MD_LATEX_CODE_BLOCK_1@@
          */
         replacePreparedCodeWithPlaceholders(
             clone,
@@ -3382,13 +3382,13 @@
 
 
         console.log(
-            '[copyformd] 当前正文节点：',
+            '[Copy for md Latex] 当前正文节点：',
             root
         );
 
 
         console.log(
-            '[copyformd] 正文评分：',
+            '[Copy for md Latex] 正文评分：',
             contentScore(
                 root
             )
@@ -3406,7 +3406,7 @@
             root !== turn
         ) {
             console.warn(
-                '[copyformd] 主正文为空，退回整个 Assistant turn。'
+                '[Copy for md Latex] 主正文为空，退回整个 Assistant turn。'
             );
 
 
@@ -3532,7 +3532,7 @@
 
 
                     console.log(
-                        '[copyformd] 转换后的 Markdown：\n\n' +
+                        '[Copy for md Latex] 转换后的 Markdown：\n\n' +
                         markdown
                     );
 
@@ -3564,7 +3564,7 @@
 
                 } catch (error) {
                     console.error(
-                        '[copyformd] 复制失败：',
+                        '[Copy for md Latex] 复制失败：',
                         error
                     );
 
@@ -3741,7 +3741,7 @@
 
 
     console.log(
-        '[copyformd] GPT Markdown LaTeX Copy v0.5.3 已加载。'
+        '[Copy for md Latex] Copy for md Latex v0.5.4 已加载。'
     );
 
 })();

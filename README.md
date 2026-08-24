@@ -1,6 +1,6 @@
-# gpt-markdown-latex-copy
+# Copy for md Latex
 
-A userscript that adds a `Copy for md Latex` button to ChatGPT assistant messages and copies the response as Markdown while preserving LaTeX and code-block formatting.
+**Copy for md Latex** is a userscript that adds a `Copy for md Latex` button to ChatGPT assistant messages and copies the response as Markdown while preserving LaTeX and code-block formatting.
 
 ## Features
 
@@ -14,19 +14,21 @@ A userscript that adds a `Copy for md Latex` button to ChatGPT assistant message
 
 Install a userscript manager such as Tampermonkey or Violentmonkey, then install:
 
-`gpt-markdown-latex-copy.user.js`
+`copy-for-md-latex.user.js`
 
 After this repository is pushed to GitHub, the raw userscript URL is:
 
-`https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/gpt-markdown-latex-copy.user.js`
+`https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/copy-for-md-latex.user.js`
 
 ## Repository
+
+Project name: **Copy for md Latex**
 
 `https://github.com/guyong1449/gpt-markdown-latex-copy`
 
 ## Push this prepared repository
 
-This ZIP already contains a local `.git` repository with branch `main` and an initial commit. After extracting it, run:
+This ZIP already contains a local `.git` repository with branch `main`. After extracting it, run:
 
 ```bash
 git remote add origin https://github.com/guyong1449/gpt-markdown-latex-copy.git
