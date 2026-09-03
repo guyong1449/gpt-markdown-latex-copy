@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Copy for md Latex
 // @namespace    https://github.com/guyong1449/gpt-markdown-latex-copy
-// @version      0.5.4
-// @description  将 ChatGPT 回答复制为 Markdown，并保留 LaTeX、代码块真实换行，同时排除语言标签与复制按钮 UI
+// @version      0.5.6
+// @description  将 ChatGPT 回答复制为 Markdown，保留 LaTeX 与代码块真实换行，避免视觉自动折行被误复制成换行
 // @homepageURL  https://github.com/guyong1449/gpt-markdown-latex-copy
 // @supportURL   https://github.com/guyong1449/gpt-markdown-latex-copy/issues
 // @updateURL    https://raw.githubusercontent.com/guyong1449/gpt-markdown-latex-copy/main/copy-for-md-latex.user.js
@@ -17,19 +17,11 @@
     const BUTTON_WRAPPER_CLASS = 'copy-for-md-latex-wrapper';
     const BUTTON_CLASS = 'copy-for-md-latex-button';
     const TURN_PROCESSED_ATTR = 'data-copy-for-md-latex-turn-ready';
-
-    const TEMP_MATH_ATTR = 'data-copy-for-md-latex-temp-math-id';
     const TEMP_CODE_ATTR = 'data-copy-for-md-latex-temp-code-id';
+    const TEMP_MATH_ATTR = 'data-copy-for-md-latex-temp-math-id';
 
-    let mathIdCounter = 0;
     let codeIdCounter = 0;
-
-    const COPY_UI_SELECTOR = [
-        'button',
-        '[data-testid^="copy-code-block"]',
-        '[data-testid^="copy-turn-action-button"]',
-        '[data-qa="copy-code"]'
-    ].join(',');
+    let mathIdCounter = 0;
 
     const LANGUAGE_MAP = new Map([
         ['python', 'python'],
@@ -81,6 +73,13 @@
         ['text', 'text'],
         ['plaintext', 'text']
     ]);
+
+    const COPY_UI_SELECTOR = [
+        'button',
+        '[data-testid^="copy-code-block"]',
+        '[data-testid^="copy-turn-action-button"]',
+        '[data-qa="copy-code"]'
+    ].join(',');
 
 
     /*
@@ -281,985 +280,6 @@
 
     /*
      * ============================================================
-     * Math
-     * ============================================================
-     */
-
-    function getElement(node) {
-        if (!node) {
-            return null;
-        }
-
-        return (
-            node.nodeType ===
-                Node.ELEMENT_NODE
-                ? node
-                : node.parentElement
-        );
-    }
-
-
-    function extractLatexFromMathNode(
-        node
-    ) {
-        const element =
-            getElement(node);
-
-        if (!element) {
-            return null;
-        }
-
-        if (
-            element.matches &&
-            element.matches(
-                'annotation'
-            )
-        ) {
-            const encoding = (
-                element.getAttribute(
-                    'encoding'
-                ) ||
-                ''
-            ).toLowerCase();
-
-            if (
-                encoding.includes(
-                    'tex'
-                ) ||
-                encoding.includes(
-                    'latex'
-                )
-            ) {
-                const value =
-                    element.textContent
-                        .trim();
-
-                if (value) {
-                    return value;
-                }
-            }
-        }
-
-
-        if (
-            element.querySelectorAll
-        ) {
-            for (
-                const annotation of
-                element.querySelectorAll(
-                    'annotation'
-                )
-            ) {
-                const encoding = (
-                    annotation.getAttribute(
-                        'encoding'
-                    ) ||
-                    ''
-                ).toLowerCase();
-
-                if (
-                    encoding.includes(
-                        'tex'
-                    ) ||
-                    encoding.includes(
-                        'latex'
-                    )
-                ) {
-                    const value =
-                        annotation
-                            .textContent
-                            .trim();
-
-                    if (value) {
-                        return value;
-                    }
-                }
-            }
-        }
-
-
-        const attrs = [
-            'data-latex',
-            'data-tex',
-            'data-math',
-            'data-formula',
-            'alttext'
-        ];
-
-        let current =
-            element;
-
-        for (
-            let depth = 0;
-            current &&
-            depth < 8;
-            depth++,
-            current =
-                current.parentElement
-        ) {
-            for (
-                const attr of attrs
-            ) {
-                const value =
-                    current.getAttribute &&
-                    current.getAttribute(
-                        attr
-                    );
-
-                if (
-                    value &&
-                    value.trim()
-                ) {
-                    return value.trim();
-                }
-            }
-        }
-
-
-        current =
-            element;
-
-        for (
-            let depth = 0;
-            current &&
-            depth < 6;
-            depth++,
-            current =
-                current.parentElement
-        ) {
-            const aria =
-                current.getAttribute &&
-                current.getAttribute(
-                    'aria-label'
-                );
-
-            if (aria) {
-                const value =
-                    aria.trim();
-
-                if (
-                    value.includes('\\') ||
-                    /[_^{}]/.test(value)
-                ) {
-                    return value;
-                }
-            }
-        }
-
-        return null;
-    }
-
-
-    function findMathWrapper(
-        node
-    ) {
-        const element =
-            getElement(node);
-
-        if (!element) {
-            return null;
-        }
-
-
-        const katexDisplay =
-            element.closest &&
-            element.closest(
-                '.katex-display'
-            );
-
-        if (katexDisplay) {
-            return katexDisplay;
-        }
-
-
-        const katex =
-            element.closest &&
-            element.closest(
-                '.katex'
-            );
-
-        if (katex) {
-            return katex;
-        }
-
-
-        const mjx =
-            element.closest &&
-            element.closest(
-                'mjx-container'
-            );
-
-        if (mjx) {
-            return mjx;
-        }
-
-
-        const custom =
-            element.closest &&
-            element.closest(
-                [
-                    '[data-latex]',
-                    '[data-tex]',
-                    '[data-math]',
-                    '[data-formula]',
-                    '[role="math"]',
-                    '.math-display',
-                    '.math-block',
-                    '.display-math',
-                    '.math-inline',
-                    '.inline-math'
-                ].join(',')
-            );
-
-        if (custom) {
-            return custom;
-        }
-
-
-        const math =
-            element.closest &&
-            element.closest('math');
-
-        if (math) {
-            return math;
-        }
-
-        return element;
-    }
-
-
-    function hasMeaningfulContent(
-        node
-    ) {
-        if (!node) {
-            return false;
-        }
-
-        if (
-            node.nodeType ===
-            Node.TEXT_NODE
-        ) {
-            return (
-                node.textContent
-                    .trim() !== ''
-            );
-        }
-
-        if (
-            node.nodeType !==
-            Node.ELEMENT_NODE
-        ) {
-            return false;
-        }
-
-        const tag =
-            node.tagName
-                .toLowerCase();
-
-        if (
-            tag === 'br' ||
-            tag === 'wbr'
-        ) {
-            return false;
-        }
-
-        if (
-            node.getAttribute &&
-            node.getAttribute(
-                'aria-hidden'
-            ) === 'true'
-        ) {
-            return false;
-        }
-
-        return (
-            node.textContent ||
-            ''
-        ).trim() !== '';
-    }
-
-
-    function isOnlyMeaningfulChild(
-        parent,
-        child
-    ) {
-        if (
-            !parent ||
-            !child
-        ) {
-            return false;
-        }
-
-        for (
-            const sibling of
-            parent.childNodes
-        ) {
-            if (
-                sibling === child
-            ) {
-                continue;
-            }
-
-            if (
-                hasMeaningfulContent(
-                    sibling
-                )
-            ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-
-    function paragraphHasOtherContent(
-        wrapper
-    ) {
-        const paragraph =
-            wrapper.closest &&
-            wrapper.closest('p');
-
-        if (!paragraph) {
-            return false;
-        }
-
-        if (
-            isOnlyMeaningfulChild(
-                paragraph,
-                wrapper
-            )
-        ) {
-            return false;
-        }
-
-        let current =
-            wrapper;
-
-        for (
-            let depth = 0;
-            current &&
-            current.parentElement &&
-            depth < 5;
-            depth++
-        ) {
-            const parent =
-                current.parentElement;
-
-            if (
-                parent === paragraph
-            ) {
-                return (
-                    !isOnlyMeaningfulChild(
-                        paragraph,
-                        current
-                    )
-                );
-            }
-
-            if (
-                parent.tagName
-                    .toLowerCase() !==
-                'span'
-            ) {
-                break;
-            }
-
-            if (
-                !isOnlyMeaningfulChild(
-                    parent,
-                    current
-                )
-            ) {
-                return true;
-            }
-
-            current =
-                parent;
-        }
-
-        return true;
-    }
-
-
-    function hasExplicitDisplayMath(
-        wrapper
-    ) {
-        if (!wrapper) {
-            return false;
-        }
-
-
-        if (
-            (
-                wrapper.matches &&
-                wrapper.matches(
-                    '.katex-display'
-                )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
-                    '.katex-display'
-                )
-            )
-        ) {
-            return true;
-        }
-
-
-        if (
-            (
-                wrapper.matches &&
-                wrapper.matches(
-                    'mjx-container[display="true"]'
-                )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
-                    'mjx-container[display="true"]'
-                )
-            )
-        ) {
-            return true;
-        }
-
-
-        const math =
-            wrapper.matches &&
-            wrapper.matches('math')
-                ? wrapper
-                : (
-                    wrapper.querySelector
-                        ? wrapper.querySelector(
-                            'math'
-                        )
-                        : null
-                );
-
-        if (
-            math &&
-            math.getAttribute(
-                'display'
-            ) === 'block'
-        ) {
-            return true;
-        }
-
-
-        const displaySelector =
-            [
-                '.math-display',
-                '.math-block',
-                '.display-math',
-                '[data-math-display="true"]'
-            ].join(',');
-
-
-        if (
-            (
-                wrapper.matches &&
-                wrapper.matches(
-                    displaySelector
-                )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
-                    displaySelector
-                )
-            )
-        ) {
-            return true;
-        }
-
-        return false;
-    }
-
-
-    function hasBlockLikeCSS(
-        wrapper
-    ) {
-        if (
-            !wrapper ||
-            !wrapper.isConnected
-        ) {
-            return false;
-        }
-
-        const style =
-            window.getComputedStyle(
-                wrapper
-            );
-
-        if (
-            [
-                'block',
-                'flex',
-                'grid',
-                'table'
-            ].includes(
-                style.display
-            )
-        ) {
-            return true;
-        }
-
-
-        let parent =
-            wrapper.parentElement;
-
-        for (
-            let depth = 0;
-            parent &&
-            depth < 3;
-            depth++,
-            parent =
-                parent.parentElement
-        ) {
-            const parentStyle =
-                window.getComputedStyle(
-                    parent
-                );
-
-            if (
-                parentStyle.textAlign ===
-                    'center' &&
-                isOnlyMeaningfulChild(
-                    parent,
-                    wrapper
-                )
-            ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-
-    function looksCenteredOnPage(
-        wrapper,
-        contentRoot
-    ) {
-        if (
-            !wrapper ||
-            !contentRoot ||
-            !wrapper.isConnected ||
-            !contentRoot.isConnected
-        ) {
-            return false;
-        }
-
-        const formulaRect =
-            wrapper
-                .getBoundingClientRect();
-
-        const contentRect =
-            contentRoot
-                .getBoundingClientRect();
-
-        if (
-            formulaRect.width <= 0 ||
-            formulaRect.height <= 0 ||
-            contentRect.width <= 0
-        ) {
-            return false;
-        }
-
-        const formulaCenter =
-            formulaRect.left +
-            formulaRect.width / 2;
-
-        const contentCenter =
-            contentRect.left +
-            contentRect.width / 2;
-
-        const difference =
-            Math.abs(
-                formulaCenter -
-                contentCenter
-            );
-
-        const centered =
-            difference <
-            contentRect.width * 0.08;
-
-        if (!centered) {
-            return false;
-        }
-
-        if (
-            paragraphHasOtherContent(
-                wrapper
-            )
-        ) {
-            return false;
-        }
-
-        return true;
-    }
-
-
-    function detectDisplayMath(
-        wrapper,
-        contentRoot
-    ) {
-        if (
-            hasExplicitDisplayMath(
-                wrapper
-            )
-        ) {
-            return true;
-        }
-
-        if (
-            paragraphHasOtherContent(
-                wrapper
-            )
-        ) {
-            return false;
-        }
-
-        if (
-            hasBlockLikeCSS(
-                wrapper
-            )
-        ) {
-            return true;
-        }
-
-        if (
-            looksCenteredOnPage(
-                wrapper,
-                contentRoot
-            )
-        ) {
-            return true;
-        }
-
-
-        let current =
-            wrapper;
-
-        for (
-            let depth = 0;
-            current &&
-            current.parentElement &&
-            depth < 4;
-            depth++
-        ) {
-            const parent =
-                current.parentElement;
-
-            const tag =
-                parent.tagName
-                    .toLowerCase();
-
-            if (
-                [
-                    'p',
-                    'div',
-                    'figure'
-                ].includes(tag)
-            ) {
-                if (
-                    isOnlyMeaningfulChild(
-                        parent,
-                        current
-                    )
-                ) {
-                    return true;
-                }
-
-                return false;
-            }
-
-            if (
-                tag !== 'span'
-            ) {
-                break;
-            }
-
-            if (
-                !isOnlyMeaningfulChild(
-                    parent,
-                    current
-                )
-            ) {
-                return false;
-            }
-
-            current =
-                parent;
-        }
-
-        return false;
-    }
-
-
-    function prepareMathMetadata(
-        contentRoot
-    ) {
-        const metadata =
-            new Map();
-
-        const wrapperSet =
-            new Set();
-
-
-        const annotations = [
-            ...contentRoot
-                .querySelectorAll(
-                    'annotation'
-                )
-        ];
-
-
-        for (
-            const annotation of annotations
-        ) {
-            const encoding = (
-                annotation.getAttribute(
-                    'encoding'
-                ) ||
-                ''
-            ).toLowerCase();
-
-            if (
-                !encoding.includes(
-                    'tex'
-                ) &&
-                !encoding.includes(
-                    'latex'
-                )
-            ) {
-                continue;
-            }
-
-
-            const latex =
-                annotation
-                    .textContent
-                    .trim();
-
-            if (!latex) {
-                continue;
-            }
-
-
-            const wrapper =
-                findMathWrapper(
-                    annotation
-                );
-
-            if (
-                !wrapper ||
-                wrapperSet.has(
-                    wrapper
-                )
-            ) {
-                continue;
-            }
-
-
-            wrapperSet.add(
-                wrapper
-            );
-
-            const id =
-                'copy-for-md-latex-math-' +
-                (++mathIdCounter);
-
-            const display =
-                detectDisplayMath(
-                    wrapper,
-                    contentRoot
-                );
-
-            wrapper.setAttribute(
-                TEMP_MATH_ATTR,
-                id
-            );
-
-            metadata.set(
-                id,
-                {
-                    latex,
-                    display
-                }
-            );
-        }
-
-
-        const candidates = [
-            ...contentRoot
-                .querySelectorAll(
-                    [
-                        '.katex',
-                        '.katex-display',
-                        'mjx-container',
-                        'math',
-                        '[data-latex]',
-                        '[data-tex]',
-                        '[data-math]',
-                        '[data-formula]',
-                        '[role="math"]',
-                        '.math-display',
-                        '.math-block',
-                        '.display-math',
-                        '.math-inline',
-                        '.inline-math'
-                    ].join(',')
-                )
-        ];
-
-
-        for (
-            const candidate of candidates
-        ) {
-            const wrapper =
-                findMathWrapper(
-                    candidate
-                );
-
-            if (
-                !wrapper ||
-                wrapperSet.has(
-                    wrapper
-                )
-            ) {
-                continue;
-            }
-
-
-            const latex =
-                extractLatexFromMathNode(
-                    candidate
-                );
-
-            if (!latex) {
-                continue;
-            }
-
-
-            wrapperSet.add(
-                wrapper
-            );
-
-            const id =
-                'copy-for-md-latex-math-' +
-                (++mathIdCounter);
-
-            const display =
-                detectDisplayMath(
-                    wrapper,
-                    contentRoot
-                );
-
-            wrapper.setAttribute(
-                TEMP_MATH_ATTR,
-                id
-            );
-
-            metadata.set(
-                id,
-                {
-                    latex,
-                    display
-                }
-            );
-        }
-
-
-        return {
-            metadata,
-            markedWrappers: [
-                ...wrapperSet
-            ]
-        };
-    }
-
-
-    function replacePreparedMath(
-        clone,
-        metadata
-    ) {
-        let inlineCount = 0;
-        let displayCount = 0;
-
-        const nodes = [
-            ...clone.querySelectorAll(
-                '[' +
-                TEMP_MATH_ATTR +
-                ']'
-            )
-        ];
-
-
-        for (
-            const node of nodes
-        ) {
-            const id =
-                node.getAttribute(
-                    TEMP_MATH_ATTR
-                );
-
-            const info =
-                metadata.get(id);
-
-            if (!info) {
-                continue;
-            }
-
-
-            const latex =
-                info.latex.trim();
-
-            const markdown =
-                info.display
-                    ? (
-                        '\n\n$$\n' +
-                        latex +
-                        '\n$$\n\n'
-                    )
-                    : (
-                        '$' +
-                        latex +
-                        '$'
-                    );
-
-
-            if (
-                info.display
-            ) {
-                displayCount++;
-            } else {
-                inlineCount++;
-            }
-
-
-            node.replaceWith(
-                document.createTextNode(
-                    markdown
-                )
-            );
-        }
-
-
-        console.log(
-            '[Copy for md Latex] 数学公式：独立 ' +
-            displayCount +
-            ' 个；行内 ' +
-            inlineCount +
-            ' 个。'
-        );
-    }
-
-
-    /*
-     * ============================================================
      * Normal Text
      * ============================================================
      */
@@ -1283,13 +303,11 @@
 
     /*
      * ============================================================
-     * Code Blocks
+     * Code
      * ============================================================
      */
 
-    function normalizeCodeText(
-        text
-    ) {
+    function normalizeCodeText(text) {
         return (text || '')
             .replace(
                 /\r\n?/g,
@@ -1306,21 +324,15 @@
     }
 
 
-    function countNewlines(
-        text
-    ) {
+    function countNewlines(text) {
         return (
-            text.match(
-                /\n/g
-            ) ||
+            text.match(/\n/g) ||
             []
         ).length;
     }
 
 
-    function codeSignature(
-        text
-    ) {
+    function codeSignature(text) {
         return normalizeCodeText(
             text
         ).replace(
@@ -1330,9 +342,7 @@
     }
 
 
-    function languageFromLabel(
-        text
-    ) {
+    function languageFromLabel(text) {
         const normalized = (
             text ||
             ''
@@ -1349,9 +359,7 @@
     }
 
 
-    function looksLikeCopyUiText(
-        text
-    ) {
+    function looksLikeCopyUiText(text) {
         const normalized = (
             text ||
             ''
@@ -1377,8 +385,11 @@
 
 
     /*
-     * 从 class / data attribute / wrapper 顶部文字识别语言。
+     * ============================================================
+     * Detect code language
+     * ============================================================
      */
+
     function detectCodeLanguage(
         pre,
         wrapper
@@ -1399,7 +410,7 @@
         ) {
             const className =
                 typeof node.className ===
-                    'string'
+                'string'
                     ? node.className
                     : '';
 
@@ -1451,14 +462,16 @@
 
 
         /*
-         * 如果语言标签在 <pre> 外面：
+         * 有些 ChatGPT 代码块结构：
          *
-         * LaTeX
          * Python
-         * JavaScript
+         * Copy
+         * <pre>...</pre>
          *
-         * 则从 wrapper 中识别。
+         * 语言标签不在 pre 内部，
+         * 因此从 wrapper 剩余文本中识别。
          */
+
         if (wrapper) {
             const clone =
                 wrapper.cloneNode(
@@ -1514,36 +527,9 @@
 
     /*
      * ============================================================
-     * 找真正的代码块 wrapper
+     * Find pure code wrapper
      * ============================================================
-     *
-     * 这是修复：
-     *
-     * LaTeX\int...
-     *
-     * 的关键。
-     *
-     * 不能简单向上找一个 div。
-     *
-     * 我们必须验证：
-     *
-     * candidate
-     *     │
-     *     ├── LaTeX
-     *     ├── Copy
-     *     └── <pre>...</pre>
-     *
-     * 删除 pre / button / svg 后，
-     * 如果只剩语言标签，那么它才是纯代码 wrapper。
-     *
-     * 如果剩下：
-     *
-     * "下面是一个例子"
-     *
-     * 那么它不是代码 wrapper，
-     * 不能整个删除。
      */
-
 
     function isPureCodeWrapper(
         candidate
@@ -1666,17 +652,38 @@
 
     /*
      * ============================================================
-     * DOM structural code extraction
+     * Structural code extraction
      * ============================================================
      *
-     * <br>
-     * div
-     * p
-     * block element
+     * 非常重要：
      *
-     * 都尝试恢复成真正的 \n。
+     * 此版本不再使用：
+     *
+     *     getBoundingClientRect()
+     *     rect.top
+     *     字符视觉位置
+     *
+     * 来判断换行。
+     *
+     * 因此浏览器因为窗口宽度产生的：
+     *
+     *     soft wrap
+     *
+     * 不会被误认为源码里的：
+     *
+     *     \n
+     *
+     * 只根据真正 DOM 结构：
+     *
+     *     <br>
+     *     <div>
+     *     <p>
+     *     <li>
+     *     <tr>
+     *
+     * 恢复缺失的真实行。
+     * ============================================================
      */
-
 
     function extractStructuralCodeText(
         source
@@ -1736,50 +743,23 @@
             }
 
 
-            let blockLike =
-                false;
+            /*
+             * 只使用明确 DOM 块结构。
+             *
+             * 不使用 computedStyle，
+             * 更不使用元素屏幕坐标。
+             */
 
-
-            if (
-                node !== source
-            ) {
-                if (
-                    [
-                        'div',
-                        'p',
-                        'li',
-                        'tr'
-                    ].includes(tag)
-                ) {
-                    blockLike =
-                        true;
-
-                } else if (
-                    node.isConnected
-                ) {
-                    try {
-                        const display =
-                            window
-                                .getComputedStyle(
-                                    node
-                                )
-                                .display;
-
-                        blockLike =
-                            [
-                                'block',
-                                'list-item',
-                                'table-row'
-                            ].includes(
-                                display
-                            );
-
-                    } catch (_) {
-                        blockLike =
-                            false;
-                    }
-                }
-            }
+            const blockLike =
+                node !== source &&
+                [
+                    'div',
+                    'p',
+                    'li',
+                    'tr'
+                ].includes(
+                    tag
+                );
 
 
             if (
@@ -1821,261 +801,41 @@
 
     /*
      * ============================================================
-     * Visual character-level line reconstruction
-     * ============================================================
-     *
-     * 这是 v0.5.3 最重要的修改。
-     *
-     * 旧算法：
-     *
-     *     一个 Text Node
-     *          ↓
-     *     一个整体 Range
-     *
-     * 如果这个 Text Node 横跨三行，
-     * 仍可能被判断成一个整体。
-     *
-     *
-     * 新算法：
-     *
-     *      字符 1
-     *      字符 2
-     *      字符 3
-     *        ↓
-     *     每个字符单独 Range
-     *        ↓
-     *     getBoundingClientRect()
-     *        ↓
-     *     比较 top
-     *
-     *
-     * 例如：
-     *
-     * \mathbf{A}        top = 500
-     *
-     * =                  top = 524
-     *
-     * \begin{bmatrix}   top = 548
-     *
-     *
-     * top 改变：
-     *
-     *     自动加入 \n
-     */
-
-
-    function extractVisualCodeText(
-        source
-    ) {
-        if (
-            !source ||
-            !source.isConnected
-        ) {
-            return '';
-        }
-
-
-        const walker =
-            document.createTreeWalker(
-                source,
-                NodeFilter.SHOW_TEXT,
-                {
-                    acceptNode(
-                        node
-                    ) {
-                        return (
-                            (
-                                node.textContent ||
-                                ''
-                            ).length
-                                ? NodeFilter
-                                    .FILTER_ACCEPT
-                                : NodeFilter
-                                    .FILTER_REJECT
-                        );
-                    }
-                }
-            );
-
-
-        let output = '';
-
-        let previousTop =
-            null;
-
-        let detectedVisualBreak =
-            false;
-
-        let textNode;
-
-
-        while (
-            (
-                textNode =
-                    walker.nextNode()
-            )
-        ) {
-            const text =
-                textNode.textContent ||
-                '';
-
-
-            /*
-             * 逐字符，而不是逐 text node。
-             */
-            for (
-                let i = 0;
-                i < text.length;
-                i++
-            ) {
-                const ch =
-                    text[i];
-
-
-                /*
-                 * Windows CR 忽略。
-                 */
-                if (
-                    ch === '\r'
-                ) {
-                    continue;
-                }
-
-
-                /*
-                 * DOM 本身已经有真实换行。
-                 */
-                if (
-                    ch === '\n'
-                ) {
-                    if (
-                        !output.endsWith(
-                            '\n'
-                        )
-                    ) {
-                        output += '\n';
-                    }
-
-                    previousTop =
-                        null;
-
-                    continue;
-                }
-
-
-                let top =
-                    null;
-
-
-                try {
-                    const range =
-                        document
-                            .createRange();
-
-
-                    range.setStart(
-                        textNode,
-                        i
-                    );
-
-
-                    range.setEnd(
-                        textNode,
-                        i + 1
-                    );
-
-
-                    const rect =
-                        range
-                            .getBoundingClientRect();
-
-
-                    if (
-                        rect &&
-                        (
-                            rect.width > 0 ||
-                            rect.height > 0
-                        )
-                    ) {
-                        top =
-                            rect.top;
-                    }
-
-                } catch (_) {
-                    top =
-                        null;
-                }
-
-
-                /*
-                 * Y 坐标发生明显变化：
-                 *
-                 * 浏览器已经把下一个字符放到下一行。
-                 *
-                 * 自动恢复 \n。
-                 */
-                if (
-                    top !== null &&
-                    previousTop !== null &&
-                    Math.abs(
-                        top -
-                        previousTop
-                    ) > 3 &&
-                    !output.endsWith(
-                        '\n'
-                    )
-                ) {
-                    output += '\n';
-
-                    detectedVisualBreak =
-                        true;
-                }
-
-
-                output += ch;
-
-
-                if (
-                    top !== null
-                ) {
-                    previousTop =
-                        top;
-                }
-            }
-        }
-
-
-        return (
-            detectedVisualBreak
-                ? normalizeCodeText(
-                    output
-                )
-                : ''
-        );
-    }
-
-
-    /*
-     * ============================================================
      * Final Code Extraction
      * ============================================================
      *
-     * 同时比较：
+     * 修复重点：
      *
-     * 1. textContent
-     * 2. innerText
-     * 3. DOM structural
-     * 4. character-level visual
+     * 旧版本：
      *
-     * 然后选择：
+     * raw
+     * innerText
+     * structural
+     * visual
      *
-     *     内容一致
-     *     且
-     *     换行最多
+     * 然后：
      *
-     * 的那个版本。
+     *     谁换行最多选谁
+     *
+     * 这是错误的。
+     *
+     * 因为 visual 会把页面 soft wrap
+     * 当成真正换行。
+     *
+     *
+     * 新版本：
+     *
+     * ① textContent 已经有真实换行
+     *      ↓
+     *    直接使用
+     *
+     * ② textContent 完全没有换行
+     *      ↓
+     *    才尝试 innerText / structural
+     *
+     * ③ 完全禁止视觉坐标制造换行
+     * ============================================================
      */
-
 
     function extractCodeBlockText(
         pre
@@ -2111,76 +871,79 @@
             );
 
 
-        const visual =
-            extractVisualCodeText(
-                source
-            );
-
-
-        /*
-         * 去掉 whitespace 后检查文本内容是否一致。
-         *
-         * 防止视觉提取误把 UI 或其它文字放进代码。
-         */
         const signature =
             codeSignature(
                 raw
             );
 
 
-        const candidates = [
-            raw,
-            rendered,
-            structural,
-            visual
-        ]
-            .filter(
-                text =>
-                    text !== ''
-            )
-            .filter(
-                text =>
+        const validCandidate =
+            text =>
+                text !== '' &&
+                (
                     !signature ||
                     codeSignature(
                         text
-                    ) === signature
-            );
+                    ) ===
+                    signature
+                );
 
+
+        /*
+         * 默认直接相信 textContent。
+         */
 
         let best =
             raw;
 
 
-        for (
-            const candidate of candidates
+        /*
+         * 只有 raw 一条真实换行都没有，
+         * 才允许其它 DOM 方法帮助恢复。
+         */
+
+        if (
+            countNewlines(
+                raw
+            ) === 0
         ) {
-            if (
-                countNewlines(
-                    candidate
-                ) >
-                countNewlines(
-                    best
-                )
+            const candidates = [
+                rendered,
+                structural
+            ].filter(
+                validCandidate
+            );
+
+
+            for (
+                const candidate of
+                candidates
             ) {
-                best =
-                    candidate;
+                if (
+                    countNewlines(
+                        candidate
+                    ) >
+                    countNewlines(
+                        best
+                    )
+                ) {
+                    best =
+                        candidate;
+                }
             }
         }
 
 
         /*
-         * 只删除代码 DOM 最后额外产生的一个换行。
+         * DOM 有时在代码末尾额外生成一个换行。
          *
-         * 不使用 trim()。
+         * 只删最后一个。
          *
-         * 因为：
+         * 不能 trim()：
          *
-         *     缩进
-         *     内部空行
-         *     前导空格
-         *
-         * 对代码有意义。
+         * 因为代码前导空格、缩进、空行都有意义。
          */
+
         if (
             best.endsWith(
                 '\n'
@@ -2194,13 +957,6 @@
         }
 
 
-        /*
-         * 调试信息。
-         *
-         * F12 -> Console
-         *
-         * 可以看到四种算法各自识别了多少行。
-         */
         console.log(
             '[Copy for md Latex][Code Debug]',
             {
@@ -2219,17 +975,13 @@
                         structural
                     ),
 
-                visualLines:
-                    countNewlines(
-                        visual
-                    ),
-
                 selectedLines:
                     countNewlines(
                         best
                     ),
 
                 raw,
+
                 selected:
                     best
             }
@@ -2245,7 +997,6 @@
      * Markdown fenced code
      * ============================================================
      */
-
 
     function buildFencedCodeMarkdown(
         text,
@@ -2273,9 +1024,13 @@
 
 
         /*
-         * 如果代码本身有 ```
-         * 外层自动改成 ````
+         * 如果代码自己包含：
+         *
+         * ```
+         *
+         * 外层自动使用更多反引号。
          */
+
         const fence =
             '`'.repeat(
                 Math.max(
@@ -2301,10 +1056,9 @@
 
     /*
      * ============================================================
-     * Freeze code blocks
+     * Freeze Code Blocks
      * ============================================================
      */
-
 
     function prepareCodeMetadata(
         contentRoot
@@ -2327,17 +1081,6 @@
         for (
             const pre of pres
         ) {
-            /*
-             * 找经过验证的 wrapper。
-             *
-             * wrapper 可以包含：
-             *
-             * LaTeX
-             * Copy
-             * <pre>
-             *
-             * 但不能包含其它正文。
-             */
             const wrapper =
                 findPureCodeWrapper(
                     pre,
@@ -2429,9 +1172,6 @@
         ];
 
 
-        let count = 0;
-
-
         for (
             const node of nodes
         ) {
@@ -2442,7 +1182,9 @@
 
 
             const info =
-                metadata.get(id);
+                metadata.get(
+                    id
+                );
 
 
             if (!info) {
@@ -2457,17 +1199,7 @@
                     '\n\n'
                 )
             );
-
-
-            count++;
         }
-
-
-        console.log(
-            '[Copy for md Latex] 代码块：' +
-            count +
-            ' 个。'
-        );
     }
 
 
@@ -2500,10 +1232,599 @@
 
     /*
      * ============================================================
-     * DOM → Markdown
+     * Math
      * ============================================================
      */
 
+    function getElement(
+        node
+    ) {
+        if (!node) {
+            return null;
+        }
+
+
+        return (
+            node.nodeType ===
+                Node.ELEMENT_NODE
+                ? node
+                : node.parentElement
+        );
+    }
+
+
+    function extractLatexFromMathNode(
+        node
+    ) {
+        const element =
+            getElement(
+                node
+            );
+
+
+        if (!element) {
+            return null;
+        }
+
+
+        /*
+         * KaTeX / MathML annotation
+         */
+
+        if (
+            element.matches &&
+            element.matches(
+                'annotation'
+            )
+        ) {
+            const encoding = (
+                element.getAttribute(
+                    'encoding'
+                ) ||
+                ''
+            ).toLowerCase();
+
+
+            if (
+                encoding.includes(
+                    'tex'
+                ) ||
+                encoding.includes(
+                    'latex'
+                )
+            ) {
+                const value = (
+                    element.textContent ||
+                    ''
+                ).trim();
+
+
+                if (value) {
+                    return value;
+                }
+            }
+        }
+
+
+        if (
+            element.querySelectorAll
+        ) {
+            for (
+                const annotation of
+                element.querySelectorAll(
+                    'annotation'
+                )
+            ) {
+                const encoding = (
+                    annotation.getAttribute(
+                        'encoding'
+                    ) ||
+                    ''
+                ).toLowerCase();
+
+
+                if (
+                    encoding.includes(
+                        'tex'
+                    ) ||
+                    encoding.includes(
+                        'latex'
+                    )
+                ) {
+                    const value = (
+                        annotation.textContent ||
+                        ''
+                    ).trim();
+
+
+                    if (value) {
+                        return value;
+                    }
+                }
+            }
+        }
+
+
+        /*
+         * 自定义 LaTeX attributes
+         */
+
+        const attrs = [
+            'data-latex',
+            'data-tex',
+            'data-math',
+            'data-formula',
+            'alttext'
+        ];
+
+
+        let current =
+            element;
+
+
+        for (
+            let depth = 0;
+            current &&
+            depth < 8;
+            depth++,
+            current =
+                current.parentElement
+        ) {
+            for (
+                const attr of attrs
+            ) {
+                const value =
+                    current.getAttribute &&
+                    current.getAttribute(
+                        attr
+                    );
+
+
+                if (
+                    value &&
+                    value.trim()
+                ) {
+                    return value.trim();
+                }
+            }
+        }
+
+
+        /*
+         * aria-label fallback
+         */
+
+        current =
+            element;
+
+
+        for (
+            let depth = 0;
+            current &&
+            depth < 6;
+            depth++,
+            current =
+                current.parentElement
+        ) {
+            const aria =
+                current.getAttribute &&
+                current.getAttribute(
+                    'aria-label'
+                );
+
+
+            if (aria) {
+                const value =
+                    aria.trim();
+
+
+                if (
+                    value.includes(
+                        '\\'
+                    ) ||
+                    /[_^{}]/.test(
+                        value
+                    )
+                ) {
+                    return value;
+                }
+            }
+        }
+
+
+        return null;
+    }
+
+
+    function findMathWrapper(
+        node
+    ) {
+        const element =
+            getElement(
+                node
+            );
+
+
+        if (!element) {
+            return null;
+        }
+
+
+        const katexDisplay =
+            element.closest &&
+            element.closest(
+                '.katex-display'
+            );
+
+
+        if (katexDisplay) {
+            return katexDisplay;
+        }
+
+
+        const katex =
+            element.closest &&
+            element.closest(
+                '.katex'
+            );
+
+
+        if (katex) {
+            return katex;
+        }
+
+
+        const mjx =
+            element.closest &&
+            element.closest(
+                'mjx-container'
+            );
+
+
+        if (mjx) {
+            return mjx;
+        }
+
+
+        const custom =
+            element.closest &&
+            element.closest(
+                [
+                    '[data-latex]',
+                    '[data-tex]',
+                    '[data-math]',
+                    '[data-formula]',
+                    '[role="math"]',
+                    '.math-display',
+                    '.math-block',
+                    '.display-math',
+                    '.math-inline',
+                    '.inline-math'
+                ].join(',')
+            );
+
+
+        if (custom) {
+            return custom;
+        }
+
+
+        const math =
+            element.closest &&
+            element.closest(
+                'math'
+            );
+
+
+        if (math) {
+            return math;
+        }
+
+
+        return element;
+    }
+
+
+    function detectDisplayMath(
+        wrapper
+    ) {
+        if (!wrapper) {
+            return false;
+        }
+
+
+        /*
+         * KaTeX display
+         */
+
+        if (
+            (
+                wrapper.matches &&
+                wrapper.matches(
+                    '.katex-display'
+                )
+            ) ||
+            (
+                wrapper.closest &&
+                wrapper.closest(
+                    '.katex-display'
+                )
+            )
+        ) {
+            return true;
+        }
+
+
+        /*
+         * MathJax display
+         */
+
+        if (
+            (
+                wrapper.matches &&
+                wrapper.matches(
+                    'mjx-container[display="true"]'
+                )
+            ) ||
+            (
+                wrapper.closest &&
+                wrapper.closest(
+                    'mjx-container[display="true"]'
+                )
+            )
+        ) {
+            return true;
+        }
+
+
+        /*
+         * MathML
+         */
+
+        const math =
+            wrapper.matches &&
+            wrapper.matches(
+                'math'
+            )
+                ? wrapper
+                : (
+                    wrapper.querySelector
+                        ? wrapper.querySelector(
+                            'math'
+                        )
+                        : null
+                );
+
+
+        if (
+            math &&
+            math.getAttribute(
+                'display'
+            ) === 'block'
+        ) {
+            return true;
+        }
+
+
+        /*
+         * Custom display classes
+         */
+
+        const displaySelector =
+            [
+                '.math-display',
+                '.math-block',
+                '.display-math',
+                '[data-math-display="true"]'
+            ].join(',');
+
+
+        return Boolean(
+            (
+                wrapper.matches &&
+                wrapper.matches(
+                    displaySelector
+                )
+            ) ||
+            (
+                wrapper.closest &&
+                wrapper.closest(
+                    displaySelector
+                )
+            )
+        );
+    }
+
+
+    function prepareMathMetadata(
+        contentRoot
+    ) {
+        const metadata =
+            new Map();
+
+
+        const wrapperSet =
+            new Set();
+
+
+        const candidates = [
+            ...contentRoot
+                .querySelectorAll(
+                    [
+                        'annotation',
+                        '.katex',
+                        '.katex-display',
+                        'mjx-container',
+                        'math',
+                        '[data-latex]',
+                        '[data-tex]',
+                        '[data-math]',
+                        '[data-formula]',
+                        '[role="math"]',
+                        '.math-display',
+                        '.math-block',
+                        '.display-math',
+                        '.math-inline',
+                        '.inline-math'
+                    ].join(',')
+                )
+        ];
+
+
+        for (
+            const candidate of
+            candidates
+        ) {
+            const wrapper =
+                findMathWrapper(
+                    candidate
+                );
+
+
+            if (
+                !wrapper ||
+                wrapperSet.has(
+                    wrapper
+                )
+            ) {
+                continue;
+            }
+
+
+            const latex =
+                extractLatexFromMathNode(
+                    candidate
+                );
+
+
+            if (!latex) {
+                continue;
+            }
+
+
+            const id =
+                'copy-for-md-latex-math-' +
+                (++mathIdCounter);
+
+
+            const display =
+                detectDisplayMath(
+                    wrapper
+                );
+
+
+            wrapper.setAttribute(
+                TEMP_MATH_ATTR,
+                id
+            );
+
+
+            wrapperSet.add(
+                wrapper
+            );
+
+
+            metadata.set(
+                id,
+                {
+                    latex,
+                    display
+                }
+            );
+        }
+
+
+        return {
+            metadata,
+            markedWrappers: [
+                ...wrapperSet
+            ]
+        };
+    }
+
+
+    /*
+     * ============================================================
+     * Replace Math
+     * ============================================================
+     *
+     * 行内：
+     *
+     *     $x^2$
+     *
+     * 独立公式：
+     *
+     *     $$
+     *     x^2
+     *     $$
+     * ============================================================
+     */
+
+    function replacePreparedMath(
+        clone,
+        metadata
+    ) {
+        const nodes = [
+            ...clone.querySelectorAll(
+                '[' +
+                TEMP_MATH_ATTR +
+                ']'
+            )
+        ];
+
+
+        for (
+            const node of nodes
+        ) {
+            const id =
+                node.getAttribute(
+                    TEMP_MATH_ATTR
+                );
+
+
+            const info =
+                metadata.get(
+                    id
+                );
+
+
+            if (!info) {
+                continue;
+            }
+
+
+            const latex =
+                info.latex.trim();
+
+
+            const markdown =
+                info.display
+                    ? (
+                        '\n\n$$\n' +
+                        latex +
+                        '\n$$\n\n'
+                    )
+                    : (
+                        '$' +
+                        latex +
+                        '$'
+                    );
+
+
+            node.replaceWith(
+                document.createTextNode(
+                    markdown
+                )
+            );
+        }
+    }
+
+
+    /*
+     * ============================================================
+     * DOM → Markdown
+     * ============================================================
+     */
 
     function nodeToMarkdown(
         node,
@@ -2514,7 +1835,8 @@
             Node.TEXT_NODE
         ) {
             return normalizeText(
-                node.textContent
+                node.textContent ||
+                ''
             );
         }
 
@@ -2532,6 +1854,10 @@
                 .toLowerCase();
 
 
+        /*
+         * Ignore UI
+         */
+
         if (
             [
                 'button',
@@ -2539,7 +1865,9 @@
                 'script',
                 'style',
                 'noscript'
-            ].includes(tag)
+            ].includes(
+                tag
+            )
         ) {
             return '';
         }
@@ -2563,6 +1891,7 @@
         /*
          * Heading
          */
+
         if (
             /^h[1-6]$/.test(
                 tag
@@ -2598,6 +1927,7 @@
         /*
          * Paragraph
          */
+
         if (
             tag === 'p'
         ) {
@@ -2621,6 +1951,7 @@
         /*
          * Bold
          */
+
         if (
             tag === 'strong' ||
             tag === 'b'
@@ -2645,6 +1976,7 @@
         /*
          * Italic
          */
+
         if (
             tag === 'em' ||
             tag === 'i'
@@ -2669,6 +2001,7 @@
         /*
          * Strike
          */
+
         if (
             tag === 'del' ||
             tag === 's'
@@ -2690,12 +2023,20 @@
         }
 
 
+        /*
+         * BR
+         */
+
         if (
             tag === 'br'
         ) {
             return '\n';
         }
 
+
+        /*
+         * HR
+         */
 
         if (
             tag === 'hr'
@@ -2709,6 +2050,7 @@
         /*
          * Link
          */
+
         if (
             tag === 'a'
         ) {
@@ -2746,6 +2088,7 @@
         /*
          * Inline code
          */
+
         if (
             tag === 'code' &&
             (
@@ -2753,7 +2096,7 @@
                 node.parentElement
                     .tagName
                     .toLowerCase() !==
-                'pre'
+                    'pre'
             )
         ) {
             const codeText =
@@ -2780,11 +2123,11 @@
 
 
         /*
-         * Fallback.
+         * Fallback pre
          *
-         * 正常情况下代码块已经被冻结成 placeholder，
-         * 不会执行到这里。
+         * 正常情况下真正代码块已经提前变成 placeholder。
          */
+
         if (
             tag === 'pre'
         ) {
@@ -2815,6 +2158,7 @@
         /*
          * Blockquote
          */
+
         if (
             tag === 'blockquote'
         ) {
@@ -2847,82 +2191,67 @@
 
 
         /*
-         * UL
+         * UL / OL
          */
+
         if (
-            tag === 'ul'
+            tag === 'ul' ||
+            tag === 'ol'
         ) {
+            const ordered =
+                tag === 'ol';
+
+
+            const start =
+                ordered
+                    ? (
+                        Number(
+                            node.getAttribute(
+                                'start'
+                            )
+                        ) ||
+                        1
+                    )
+                    : 1;
+
+
+            const items = [
+                ...node.children
+            ]
+                .filter(
+                    child =>
+                        child.tagName &&
+                        child.tagName
+                            .toLowerCase() ===
+                            'li'
+                )
+                .map(
+                    (
+                        li,
+                        index
+                    ) =>
+                        listItemToMarkdown(
+                            li,
+                            ordered,
+                            listLevel,
+                            start +
+                            index
+                        )
+                )
+                .join('');
+
+
             return (
                 '\n' +
-                [
-                    ...node.children
-                ]
-                    .filter(
-                        child =>
-                            child.tagName &&
-                            child.tagName
-                                .toLowerCase() ===
-                            'li'
-                    )
-                    .map(
-                        li =>
-                            listItemToMarkdown(
-                                li,
-                                false,
-                                listLevel
-                            )
-                    )
-                    .join('') +
+                items +
                 '\n'
             );
         }
 
 
         /*
-         * OL
+         * Table
          */
-        if (
-            tag === 'ol'
-        ) {
-            const start =
-                Number(
-                    node.getAttribute(
-                        'start'
-                    )
-                ) ||
-                1;
-
-
-            return (
-                '\n' +
-                [
-                    ...node.children
-                ]
-                    .filter(
-                        child =>
-                            child.tagName &&
-                            child.tagName
-                                .toLowerCase() ===
-                            'li'
-                    )
-                    .map(
-                        (
-                            li,
-                            index
-                        ) =>
-                            listItemToMarkdown(
-                                li,
-                                true,
-                                listLevel,
-                                start +
-                                index
-                            )
-                    )
-                    .join('') +
-                '\n'
-            );
-        }
-
 
         if (
             tag === 'table'
@@ -2933,6 +2262,10 @@
         }
 
 
+        /*
+         * Generic container
+         */
+
         return children();
     }
 
@@ -2942,7 +2275,6 @@
      * Lists
      * ============================================================
      */
-
 
     function listItemToMarkdown(
         li,
@@ -2995,6 +2327,10 @@
         }
 
 
+        /*
+         * list item 正文中的段落空行压成空格。
+         */
+
         text =
             text
                 .replace(
@@ -3010,6 +2346,10 @@
             text +
             '\n';
 
+
+        /*
+         * Nested list
+         */
 
         for (
             const child of
@@ -3042,7 +2382,6 @@
      * Tables
      * ============================================================
      */
-
 
     function tableToMarkdown(
         table
@@ -3096,7 +2435,8 @@
 
 
         for (
-            const row of parsedRows
+            const row of
+            parsedRows
         ) {
             while (
                 row.length <
@@ -3107,8 +2447,13 @@
         }
 
 
-        const output = [];
+        const output =
+            [];
 
+
+        /*
+         * Header
+         */
 
         output.push(
             '| ' +
@@ -3119,6 +2464,10 @@
             ' |'
         );
 
+
+        /*
+         * Separator
+         */
 
         output.push(
             '| ' +
@@ -3134,6 +2483,10 @@
             ' |'
         );
 
+
+        /*
+         * Body
+         */
 
         for (
             let i = 1;
@@ -3167,18 +2520,11 @@
      * Markdown Cleanup
      * ============================================================
      *
-     * 注意：
+     * 此时代码块已经被替换成 placeholder。
      *
-     * 此时代码块已经变成 placeholder。
-     *
-     * 所以这里修改普通 Markdown 的空白字符时，
-     * 不可能影响代码块内部：
-     *
-     *     换行
-     *     缩进
-     *     空行
+     * 因此这里压缩普通正文空行，
+     * 不会破坏代码内部换行。
      */
-
 
     function cleanupMarkdown(
         text
@@ -3196,9 +2542,28 @@
                 /\n[ \t]+\n/g,
                 '\n\n'
             )
+
+            /*
+             * 修复你提到的：
+             *
+             * “每次会换很多很多行”
+             *
+             * 普通 Markdown 正文最多只保留：
+             *
+             * 一个空白行
+             *
+             * 即：
+             *
+             * \n\n
+             *
+             * 而不是以前可能出现的：
+             *
+             * \n\n\n
+             */
+
             .replace(
-                /\n{4,}/g,
-                '\n\n\n'
+                /\n{3,}/g,
+                '\n\n'
             )
             .replace(
                 /\n[ \t]+(?=#{1,6} )/g,
@@ -3214,7 +2579,6 @@
      * ============================================================
      */
 
-
     function convertRootToMarkdown(
         liveRoot
     ) {
@@ -3224,18 +2588,18 @@
 
 
         /*
-         * 代码先处理。
-         *
-         * 必须在 LIVE DOM 上运行，
-         * 因为字符位置恢复依赖：
-         *
-         * getBoundingClientRect()
+         * 代码块必须优先冻结。
          */
+
         const preparedCode =
             prepareCodeMetadata(
                 liveRoot
             );
 
+
+        /*
+         * 然后冻结数学公式。
+         */
 
         const preparedMath =
             prepareMathMetadata(
@@ -3254,8 +2618,9 @@
 
         } finally {
             /*
-             * 清理真实 ChatGPT DOM 上的临时 attribute。
+             * 清除真实页面上的临时 attributes。
              */
+
             for (
                 const wrapper of
                 preparedCode.markedWrappers
@@ -3278,8 +2643,9 @@
 
 
         /*
-         * 删除所有 UI。
+         * 从 clone 中移除按钮/UI。
          */
+
         clone
             .querySelectorAll(
                 [
@@ -3311,16 +2677,13 @@
 
 
         /*
-         * 代码块整体：
-         *
-         * LaTeX
-         * Copy
-         * <pre>
+         * 代码块：
          *
          * ↓
          *
-         * @@COPY_FOR_MD_LATEX_CODE_BLOCK_1@@
+         * placeholder
          */
+
         replacePreparedCodeWithPlaceholders(
             clone,
             preparedCode.metadata
@@ -3328,8 +2691,19 @@
 
 
         /*
-         * 公式转 Markdown。
+         * LaTeX：
+         *
+         * ↓
+         *
+         * $...$
+         *
+         * 或：
+         *
+         * $$
+         * ...
+         * $$
          */
+
         replacePreparedMath(
             clone,
             preparedMath.metadata
@@ -3337,10 +2711,9 @@
 
 
         /*
-         * 普通正文转换。
-         *
-         * 此时不会碰到真正的代码内容。
+         * DOM → Markdown
          */
+
         let markdown =
             cleanupMarkdown(
                 nodeToMarkdown(
@@ -3350,8 +2723,12 @@
 
 
         /*
-         * 最后把代码块原样放回来。
+         * 最后恢复代码块。
+         *
+         * 这意味着 cleanupMarkdown()
+         * 永远不会修改代码内部换行。
          */
+
         markdown =
             restorePreparedCode(
                 markdown,
@@ -3367,10 +2744,9 @@
 
     /*
      * ============================================================
-     * Convert Turn
+     * Convert Assistant Turn
      * ============================================================
      */
-
 
     function convertTurnToMarkdown(
         turn
@@ -3387,19 +2763,15 @@
         );
 
 
-        console.log(
-            '[Copy for md Latex] 正文评分：',
-            contentScore(
-                root
-            )
-        );
-
-
         let markdown =
             convertRootToMarkdown(
                 root
             );
 
+
+        /*
+         * fallback
+         */
 
         if (
             !markdown &&
@@ -3426,7 +2798,6 @@
      * Copy Button
      * ============================================================
      */
-
 
     function createButton(
         turn
@@ -3503,7 +2874,6 @@
             'click',
             async event => {
                 event.preventDefault();
-
                 event.stopPropagation();
 
 
@@ -3600,7 +2970,6 @@
      * ============================================================
      */
 
-
     function addButtons() {
         const turns =
             findAssistantTurns();
@@ -3617,11 +2986,20 @@
             ];
 
 
+            /*
+             * 已经处理过。
+             */
+
             if (
                 turn.getAttribute(
                     TURN_PROCESSED_ATTR
                 ) === 'true'
             ) {
+                /*
+                 * 如果意外存在多个按钮，
+                 * 删除多余按钮。
+                 */
+
                 existing
                     .slice(1)
                     .forEach(
@@ -3633,6 +3011,10 @@
                 continue;
             }
 
+
+            /*
+             * 删除残留旧按钮。
+             */
 
             existing.forEach(
                 node =>
@@ -3660,7 +3042,6 @@
      * Cleanup Older Version
      * ============================================================
      */
-
 
     document
         .querySelectorAll(
@@ -3692,7 +3073,6 @@
      * Observe Dynamic ChatGPT DOM
      * ============================================================
      */
-
 
     let scheduled =
         false;
@@ -3737,11 +3117,12 @@
     /*
      * Initial scan
      */
+
     addButtons();
 
 
     console.log(
-        '[Copy for md Latex] Copy for md Latex v0.5.4 已加载。'
+        '[Copy for md Latex] Copy for md Latex v0.5.6 已加载。'
     );
 
 })();
