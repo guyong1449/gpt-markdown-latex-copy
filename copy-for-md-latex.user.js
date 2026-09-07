@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Copy for md Latex
 // @namespace    https://github.com/guyong1449/gpt-markdown-latex-copy
-// @version      0.5.6
+// @version      0.5.7
 // @description  将 ChatGPT 回答复制为 Markdown，保留 LaTeX 与代码块真实换行，避免视觉自动折行被误复制成换行
 // @homepageURL  https://github.com/guyong1449/gpt-markdown-latex-copy
 // @supportURL   https://github.com/guyong1449/gpt-markdown-latex-copy/issues
@@ -193,6 +193,7 @@
                         'mjx-container',
                         '[data-latex]',
                         '[data-tex]',
+                        '[data-math-source]',
                         '[role="math"]'
                     ].join(',')
                 ).length
@@ -1268,6 +1269,26 @@
 
 
         /*
+         * 新版 ChatGPT：优先读取公式外层保存的原始 TeX。
+         * 不能先读内部 annotation，否则可能丢掉原始定界符信息。
+         */
+
+        const directMathSource =
+            element.getAttribute &&
+            element.getAttribute(
+                'data-math-source'
+            );
+
+
+        if (
+            directMathSource &&
+            directMathSource.trim()
+        ) {
+            return directMathSource.trim();
+        }
+
+
+        /*
          * KaTeX / MathML annotation
          */
 
@@ -1352,6 +1373,7 @@
         const attrs = [
             'data-latex',
             'data-tex',
+            'data-math-source',
             'data-math',
             'data-formula',
             'alttext'
@@ -1436,6 +1458,89 @@
     }
 
 
+    function normalizeMathSource(
+        value
+    ) {
+        let latex = (
+            value || ''
+        ).trim();
+
+
+        if (!latex) {
+            return {
+                latex: '',
+                displayHint: null
+            };
+        }
+
+
+        /*
+         * 新版 ChatGPT 的 data-math-source 有时会保留原始定界符。
+         * 如果这里不先剥掉，后面再次包 $ / $$ 会造成重复。
+         *
+         * 同时，原始定界符本身就是最可靠的 inline/display 信号：
+         *
+         *   $$ ... $$ / \[ ... \]  => display
+         *   $ ... $   / \( ... \)  => inline
+         */
+
+        if (
+            latex.startsWith('$$') &&
+            latex.endsWith('$$') &&
+            latex.length >= 4
+        ) {
+            return {
+                latex: latex.slice(2, -2).trim(),
+                displayHint: true
+            };
+        }
+
+
+        if (
+            latex.startsWith('\\[') &&
+            latex.endsWith('\\]') &&
+            latex.length >= 4
+        ) {
+            return {
+                latex: latex.slice(2, -2).trim(),
+                displayHint: true
+            };
+        }
+
+
+        if (
+            latex.startsWith('\\(') &&
+            latex.endsWith('\\)') &&
+            latex.length >= 4
+        ) {
+            return {
+                latex: latex.slice(2, -2).trim(),
+                displayHint: false
+            };
+        }
+
+
+        if (
+            latex.startsWith('$') &&
+            !latex.startsWith('$$') &&
+            latex.endsWith('$') &&
+            !latex.endsWith('$$') &&
+            latex.length >= 2
+        ) {
+            return {
+                latex: latex.slice(1, -1).trim(),
+                displayHint: false
+            };
+        }
+
+
+        return {
+            latex,
+            displayHint: null
+        };
+    }
+
+
     function findMathWrapper(
         node
     ) {
@@ -1450,15 +1555,50 @@
         }
 
 
-        const katexDisplay =
+        /*
+         * 先找明确的 display 容器。
+         * 这样即使公式内部还有 .katex，也不会过早停在内层 inline wrapper。
+         */
+
+        const explicitDisplay =
             element.closest &&
             element.closest(
-                '.katex-display'
+                [
+                    '.katex-display',
+                    '.MathJax_Display',
+                    'mjx-container[display="true"]',
+                    'math[display="block"]',
+                    '.math-display',
+                    '.math-block',
+                    '.display-math',
+                    '[data-math-display="true"]',
+                    '[data-display="true"]',
+                    '[data-math-style="display"]',
+                    '[data-math-style="block"]'
+                ].join(',')
             );
 
 
-        if (katexDisplay) {
-            return katexDisplay;
+        if (explicitDisplay) {
+            return explicitDisplay;
+        }
+
+
+        /*
+         * 2026 ChatGPT 当前公式源码主要放在 data-math-source。
+         * 必须优先保留这个外层 wrapper；否则从 annotation/.katex
+         * 向上找时容易丢掉 display / inline 的结构信息。
+         */
+
+        const sourceWrapper =
+            element.closest &&
+            element.closest(
+                '[data-math-source]'
+            );
+
+
+        if (sourceWrapper) {
+            return sourceWrapper;
         }
 
 
@@ -1492,6 +1632,7 @@
                 [
                     '[data-latex]',
                     '[data-tex]',
+                    '[data-math-source]',
                     '[data-math]',
                     '[data-formula]',
                     '[role="math"]',
@@ -1526,113 +1667,204 @@
 
 
     function detectDisplayMath(
-        wrapper
+        wrapper,
+        candidate = null
     ) {
-        if (!wrapper) {
+        if (!wrapper && !candidate) {
             return false;
         }
 
 
+        const nodes = [
+            wrapper,
+            candidate
+        ].filter(Boolean);
+
+
         /*
-         * KaTeX display
+         * 1. 新版/自定义公式节点上的显式 style 属性。
+         *    direct marker 的优先级最高。
          */
 
-        if (
-            (
-                wrapper.matches &&
-                wrapper.matches(
-                    '.katex-display'
-                )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
-                    '.katex-display'
-                )
+        for (const node of nodes) {
+            if (!node.getAttribute) {
+                continue;
+            }
+
+
+            const styleValue = (
+                node.getAttribute('data-math-style') ||
+                node.getAttribute('data-display') ||
+                node.getAttribute('data-math-display') ||
+                ''
             )
-        ) {
-            return true;
+                .trim()
+                .toLowerCase();
+
+
+            if (
+                styleValue === 'display' ||
+                styleValue === 'block' ||
+                styleValue === 'true'
+            ) {
+                return true;
+            }
+
+
+            if (
+                styleValue === 'inline' ||
+                styleValue === 'false'
+            ) {
+                return false;
+            }
         }
 
 
         /*
-         * MathJax display
-         */
-
-        if (
-            (
-                wrapper.matches &&
-                wrapper.matches(
-                    'mjx-container[display="true"]'
-                )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
-                    'mjx-container[display="true"]'
-                )
-            )
-        ) {
-            return true;
-        }
-
-
-        /*
-         * MathML
-         */
-
-        const math =
-            wrapper.matches &&
-            wrapper.matches(
-                'math'
-            )
-                ? wrapper
-                : (
-                    wrapper.querySelector
-                        ? wrapper.querySelector(
-                            'math'
-                        )
-                        : null
-                );
-
-
-        if (
-            math &&
-            math.getAttribute(
-                'display'
-            ) === 'block'
-        ) {
-            return true;
-        }
-
-
-        /*
-         * Custom display classes
+         * 2. 标准 KaTeX / MathJax / MathML / 自定义 display 标记。
          */
 
         const displaySelector =
             [
+                '.katex-display',
+                '.MathJax_Display',
+                'mjx-container[display="true"]',
+                'math[display="block"]',
                 '.math-display',
                 '.math-block',
                 '.display-math',
-                '[data-math-display="true"]'
+                '[data-math-display="true"]',
+                '[data-display="true"]',
+                '[data-math-style="display"]',
+                '[data-math-style="block"]'
             ].join(',');
 
 
-        return Boolean(
-            (
-                wrapper.matches &&
-                wrapper.matches(
+        for (const node of nodes) {
+            if (
+                node.matches &&
+                node.matches(
                     displaySelector
                 )
-            ) ||
-            (
-                wrapper.closest &&
-                wrapper.closest(
+            ) {
+                return true;
+            }
+
+
+            if (
+                node.closest &&
+                node.closest(
                     displaySelector
                 )
-            )
-        );
+            ) {
+                return true;
+            }
+
+
+            if (
+                node.querySelector &&
+                node.querySelector(
+                    displaySelector
+                )
+            ) {
+                return true;
+            }
+        }
+
+
+        /*
+         * 3. data-math-source 的结构兜底。
+         *
+         * 只检查“公式源码 carrier 自己”的 CSS display，
+         * 不向普通 <p>/<div> 父节点无限上爬，避免把正文里的 inline math
+         * 因为父段落是 block 而误判成 display math。
+         */
+
+        let sourceCarrier = null;
+
+
+        for (const node of nodes) {
+            if (
+                node.matches &&
+                node.matches(
+                    '[data-math-source]'
+                )
+            ) {
+                sourceCarrier = node;
+                break;
+            }
+
+
+            const closestSource =
+                node.closest &&
+                node.closest(
+                    '[data-math-source]'
+                );
+
+
+            if (closestSource) {
+                sourceCarrier = closestSource;
+                break;
+            }
+        }
+
+
+        if (sourceCarrier) {
+            const tag =
+                sourceCarrier.tagName
+                    ? sourceCarrier.tagName.toLowerCase()
+                    : '';
+
+
+            if (
+                [
+                    'div',
+                    'figure'
+                ].includes(tag)
+            ) {
+                return true;
+            }
+
+
+            try {
+                const display =
+                    window.getComputedStyle
+                        ? window.getComputedStyle(
+                            sourceCarrier
+                        ).display
+                        : '';
+
+
+                if (
+                    [
+                        'block',
+                        'flex',
+                        'grid',
+                        'table'
+                    ].includes(display)
+                ) {
+                    return true;
+                }
+
+
+                if (
+                    display === 'inline' ||
+                    display === 'inline-block' ||
+                    display === 'inline-flex' ||
+                    display === 'inline-grid'
+                ) {
+                    return false;
+                }
+            } catch (error) {
+                console.debug(
+                    '[Copy for md Latex] 无法读取公式 display 样式：',
+                    error
+                );
+            }
+        }
+
+
+        return false;
     }
 
 
@@ -1658,6 +1890,7 @@
                         'math',
                         '[data-latex]',
                         '[data-tex]',
+                        '[data-math-source]',
                         '[data-math]',
                         '[data-formula]',
                         '[role="math"]',
@@ -1691,10 +1924,20 @@
             }
 
 
-            const latex =
+            const rawLatex =
                 extractLatexFromMathNode(
                     candidate
                 );
+
+
+            const sourceInfo =
+                normalizeMathSource(
+                    rawLatex
+                );
+
+
+            const latex =
+                sourceInfo.latex;
 
 
             if (!latex) {
@@ -1708,9 +1951,25 @@
 
 
             const display =
-                detectDisplayMath(
-                    wrapper
-                );
+                sourceInfo.displayHint !== null
+                    ? sourceInfo.displayHint
+                    : detectDisplayMath(
+                        wrapper,
+                        candidate
+                    );
+
+
+            console.log(
+                '[Copy for md Latex][Math Debug]',
+                {
+                    latex,
+                    display,
+                    displayHint:
+                        sourceInfo.displayHint,
+                    wrapper,
+                    candidate
+                }
+            );
 
 
             wrapper.setAttribute(
@@ -3122,7 +3381,7 @@
 
 
     console.log(
-        '[Copy for md Latex] Copy for md Latex v0.5.6 已加载。'
+        '[Copy for md Latex] Copy for md Latex v0.5.7 已加载。'
     );
 
 })();
